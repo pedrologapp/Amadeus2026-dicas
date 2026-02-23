@@ -359,7 +359,7 @@ export default function App() {
             animation: "fadeDown 0.6s 0.1s ease both",
           }}
         >
-          Ano Letivo 2026
+          Centro Educacional Amadeus - Ano Letivo 2026
         </span>
 
         <h1
@@ -520,7 +520,7 @@ export default function App() {
         </SectionCard>
 
         {/* HORÁRIOS */}
-        <SectionCard id="horarios" icon={Clock} title="A — Horário de Entrada" index={1}>
+        <SectionCard id="horarios" icon={Clock} title="Horário de Entrada" index={1}>
           <OL>
             <LI>No horário <strong>MATUTINO</strong>, a escola será aberta às <strong>6h45</strong>.</LI>
             <LI>No horário <strong>VESPERTINO</strong>, a escola abrirá às <strong>12h45</strong>.</LI>
@@ -532,7 +532,7 @@ export default function App() {
         </SectionCard>
 
         {/* SAÍDA */}
-        <SectionCard id="saida" icon={DoorOpen} title="B — Saída" index={2}>
+        <SectionCard id="saida" icon={DoorOpen} title="Saída" index={2}>
           <OL>
             <LI><strong>Solicitação:</strong> Toda saída antecipada deve ser solicitada por telefone ou por escrito na agenda (apresentada à Coordenação/Direção antes do início das atividades).</LI>
             <LI><strong>Identificação:</strong> É obrigatória a apresentação da Carteira de Identificação para a liberação do aluno.</LI>
@@ -548,7 +548,7 @@ export default function App() {
         </SectionCard>
 
         {/* FARDAMENTO */}
-        <SectionCard id="fardamento" icon={Shirt} title="C — Fardamento" index={3}>
+        <SectionCard id="fardamento" icon={Shirt} title="Fardamento" index={3}>
           <OL>
             <LI><strong>Obrigatório:</strong> Uso do fardamento completo em todas as atividades.</LI>
             <LI><strong>Vedações:</strong> Proibido o uso de bermudas, shorts, calções, chinelos ou sandálias.</LI>
@@ -558,7 +558,7 @@ export default function App() {
         </SectionCard>
 
         {/* O ALUNO */}
-        <SectionCard id="aluno" icon={GraduationCap} title="D — O Aluno" index={4}>
+        <SectionCard id="aluno" icon={GraduationCap} title="O Aluno" index={4}>
           <SubTitle icon={ShieldCheck}>I — Deveres</SubTitle>
           <OL>
             <LI>Ter sempre o material escolar exigido para cada disciplina e cumprir as tarefas diárias.</LI>
@@ -627,7 +627,7 @@ export default function App() {
         </SectionCard>
 
         {/* AVALIAÇÃO */}
-        <SectionCard id="avaliacao" icon={FileText} title="E — Avaliação" index={5}>
+        <SectionCard id="avaliacao" icon={FileText} title="Avaliação" index={5}>
           <OL>
             <LI>Os alunos serão informados dos horários de avaliações, bem como eventuais mudanças.</LI>
             <LI>Em todos os processos de avaliação, os <strong>aspectos qualitativos preponderão sobre os quantitativos</strong>.</LI>
@@ -654,7 +654,7 @@ export default function App() {
         </SectionCard>
 
         {/* PAIS */}
-        <SectionCard id="pais" icon={Users} title="F — Aos Pais ou Responsáveis" index={6}>
+        <SectionCard id="pais" icon={Users} title="Aos Pais ou Responsáveis" index={6}>
           <SubTitle>Anuidade</SubTitle>
           <p style={{ marginBottom: "0.7rem", fontSize: "0.93rem", color: "#475569" }}>
             Os pais são os primeiros interessados na educação dos seus filhos. A Direção e a Coordenação estão sempre prontos a recebê-los. Os responsáveis deverão assumir o compromisso de <strong>pagar em dia a mensalidade escolar</strong>.
@@ -687,7 +687,7 @@ export default function App() {
         </SectionCard>
 
         {/* TRANSPORTE */}
-        <SectionCard id="transporte" icon={Bus} title="G — Transporte Escolar" index={7}>
+        <SectionCard id="transporte" icon={Bus} title="Transporte Escolar" index={7}>
           <p style={{ fontSize: "0.93rem", color: "#475569" }}>
             A escola fica isenta da responsabilidade pelo transporte escolar, ficando sob responsabilidade dos pais e responsáveis.
           </p>
@@ -794,6 +794,7 @@ export default function App() {
     </div>
   );
 }
+
 
 
 
