@@ -1,1209 +1,781 @@
-import React, { useState } from 'react';
-import './App.css';
-import { Button } from './components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
-import { Badge } from './components/ui/badge';
-import { Separator } from './components/ui/separator';
-import { Input } from './components/ui/input';
-import { Label } from './components/ui/label';
-import { supabase } from './supabaseClient';
-
-import { 
-  MapPin, 
-  Clock, 
-  Calendar, 
-  Users, 
-  CreditCard, 
-  FileText, 
-  Phone, 
-  Mail,
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  ClipboardList,
+  Clock,
+  DoorOpen,
+  Shirt,
+  GraduationCap,
+  FileText,
+  Users,
   Bus,
-  Camera,
-  Shield,
-  Heart,
-  CheckCircle,
-  ArrowRight,
-  User,
-  X,
-  Plus,
-  Minus,
-  UserPlus,
-  Utensils,
-  XCircle,
+  ChevronUp,
+  BookOpen,
+  Home,
   AlertTriangle,
-  Search,
-  Filter
-} from 'lucide-react';
+  Menu,
+  X,
+  ShieldCheck,
+  Scale,
+  Pencil,
+  CalendarCheck,
+  HeartHandshake,
+} from "lucide-react";
 
-// Importando as imagens
-import interiorImage1 from './assets/happy1.JPG';
-import interiorImage2 from './assets/happy2.JPG';
-import jardimImage from './assets/happy3.JPG';
+/* ─── logo ─── */
+import logo from "./assets/logo.png";
 
-function App() {
-  // ⚙️ CONFIGURAÇÃO - Séries permitidas (o turno está fixo como "Manhã")
-  const TURNOS_DISPONIVEIS = ['Manhã'];
-  const SERIES_DISPONIVEIS = ['Grupo IV','Grupo V', 'Maternal(3)', 'Maternalzinho(2)', '1º Ano', '2º Ano', '3º Ano', '4º Ano', '5º Ano','6º Ano', '7º Ano', '8º Ano' ,'9º Ano'];
+/* ══════════════════════════════════════════════════════════════════
+   DATA
+   ══════════════════════════════════════════════════════════════════ */
+const NAV = [
+  { id: "objetivos", label: "Objetivos", icon: ClipboardList },
+  { id: "horarios", label: "Horários", icon: Clock },
+  { id: "saida", label: "Saída", icon: DoorOpen },
+  { id: "fardamento", label: "Fardamento", icon: Shirt },
+  { id: "aluno", label: "O Aluno", icon: GraduationCap },
+  { id: "avaliacao", label: "Avaliação", icon: FileText },
+  { id: "pais", label: "Pais", icon: Users },
+  { id: "transporte", label: "Transporte", icon: Bus },
+];
 
-  // Estados para o formulário
-  const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({
-    studentName: '',
-    studentGrade: '',
-    studentClass: '',
-    parentName: '',
-    cpf: '',
-    email: '',
-    phone: '',
-    paymentMethod: 'pix',
-    installments: 1
-  });
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [inscriptionSuccess, setInscriptionSuccess] = useState(false);
-  
-  // Estados para validação de CPF
-  const [cpfError, setCpfError] = useState('');
-  const [cpfValid, setCpfValid] = useState(false);
-
-  // Estados para busca de alunos no Supabase
-  const [studentSearch, setStudentSearch] = useState('');
-  const [studentsList, setStudentsList] = useState([]);
-  const [showStudentDropdown, setShowStudentDropdown] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [isSearching, setIsSearching] = useState(false);
-
-  // FILTRO FIXO: Turno "Manhã" (não aparece na tela, mas funciona automaticamente)
-  const [selectedTurno, setSelectedTurno] = useState('Manhã'); // ← FIXO EM "MANHÃ"
-  const [selectedSerie, setSelectedSerie] = useState(''); // ← Vazio = todas as séries
-
-  // Estado para quantidade de ingressos
-  const [ticketQuantity, setTicketQuantity] = useState(1);
-
-  // Função para validar CPF
-  const validarCPF = (cpf) => {
-    cpf = cpf.replace(/[^\d]/g, '');
-    
-    if (cpf.length !== 11) return false;
-    if (/^(\d)\1{10}$/.test(cpf)) return false;
-    
-    let soma = 0;
-    let resto;
-    
-    for (let i = 1; i <= 9; i++) {
-      soma += parseInt(cpf.substring(i-1, i)) * (11 - i);
-    }
-    resto = (soma * 10) % 11;
-    if (resto === 10 || resto === 11) resto = 0;
-    if (resto !== parseInt(cpf.substring(9, 10))) return false;
-    
-    soma = 0;
-    for (let i = 1; i <= 10; i++) {
-      soma += parseInt(cpf.substring(i-1, i)) * (12 - i);
-    }
-    resto = (soma * 10) % 11;
-    if (resto === 10 || resto === 11) resto = 0;
-    if (resto !== parseInt(cpf.substring(10, 11))) return false;
-    
-    return true;
-  };
-
-  const scrollToSection = (sectionId) => {
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  const showInscricaoForm = () => {
-    setShowForm(true);
-    setTimeout(() => {
-      document.getElementById('formulario-inscricao')?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
-  };
-
-  // Função para buscar alunos no Supabase COM FILTRO AUTOMÁTICO DE TURNO
-  const searchStudents = async (searchTerm) => {
-    if (searchTerm.length < 2) {
-      setStudentsList([]);
-      setShowStudentDropdown(false);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      let query = supabase
-        .from('alunos')
-        .select('*')
-        .ilike('nome_completo', `%${searchTerm}%`);
-
-      // FILTRO FIXO: sempre filtra por turno "Manhã"
-      if (selectedTurno) {
-        query = query.eq('turno', selectedTurno);
-      }
-
-      // Aplicar filtro de série se selecionado
-      if (selectedSerie) {
-        query = query.eq('serie', selectedSerie);
-      }
-
-          // Aplicar filtro de série se selecionado
-    if (selectedSerie) {
-      query = query.eq('serie', selectedSerie);
-    }
-
-      const { data, error } = await query
-        .order('nome_completo')
-        .limit(10);
-
-      if (error) throw error;
-      
-      setStudentsList(data || []);
-      setShowStudentDropdown(data && data.length > 0);
-    } catch (error) {
-      console.error('Erro ao buscar alunos:', error);
-      setStudentsList([]);
-      setShowStudentDropdown(false);
-    } finally {
-      setIsSearching(false);
-    }
-  };
-
-  // Função para selecionar um aluno
-  const selectStudent = (student) => {
-    setSelectedStudent(student);
-    setFormData(prev => ({
-      ...prev,
-      studentName: student.nome_completo,
-      studentGrade: student.serie,
-      studentClass: student.turma
-    }));
-    setStudentSearch(student.nome_completo);
-    setShowStudentDropdown(false);
-    setStudentsList([]);
-  };
-
-  // Função para lidar com mudança no campo de busca
-  const handleStudentSearchChange = (e) => {
-    const value = e.target.value;
-    setStudentSearch(value);
-    searchStudents(value);
-    
-    if (!value) {
-      setSelectedStudent(null);
-      setFormData(prev => ({
-        ...prev,
-        studentName: '',
-        studentGrade: '',
-        studentClass: ''
-      }));
-      setShowStudentDropdown(false);
-    }
-  };
-
-  // Refazer busca quando filtros mudarem
-  const handleFilterChange = () => {
-    if (studentSearch.length >= 2) {
-      searchStudents(studentSearch);
-    }
-  };
-
-  // Limpar seleção de aluno
-  const clearStudentSelection = () => {
-    setSelectedStudent(null);
-    setStudentSearch('');
-    setFormData(prev => ({
-      ...prev,
-      studentName: '',
-      studentGrade: '',
-      studentClass: ''
-    }));
-    setShowStudentDropdown(false);
-    setStudentsList([]);
-  };
-
-  // Limpar filtros
-  const clearFilters = () => {
-    setSelectedTurno('Manhã'); // Mantém "Manhã" fixo
-    setSelectedSerie('');
-    if (studentSearch.length >= 2) {
-      searchStudents(studentSearch);
-    }
-  };
-
-  const calculatePrice = () => {
-    const PRECO_BASE = 30.0;
-    let valorTotal = PRECO_BASE * ticketQuantity;
-    
-    if (formData.paymentMethod === 'credit') {
-      let taxaPercentual = 0;
-      const taxaFixa = 0.49;
-      const parcelas = parseInt(formData.installments) || 1;
-      
-      if (parcelas === 1) {
-        taxaPercentual = 0.0299;
-      } else if (parcelas >= 2 && parcelas <= 4) {
-        taxaPercentual = 0.0349;
-      } else {
-        taxaPercentual = 0.0399;
-      }
-      
-      valorTotal = valorTotal + (valorTotal * taxaPercentual) + taxaFixa;
-    }
-    
-    const valorParcela = valorTotal / (parseInt(formData.installments) || 1);
-    return { valorTotal, valorParcela };
-  };
-
-  const increaseTickets = () => {
-    if (ticketQuantity < 20) {
-      setTicketQuantity(prev => prev + 1);
-    }
-  };
-
-  const decreaseTickets = () => {
-    if (ticketQuantity > 1) {
-      setTicketQuantity(prev => prev - 1);
-    }
-  };
-
-  const { valorTotal, valorParcela } = calculatePrice();
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    
-    if (name === 'cpf') {
-      const cpfValue = value
-        .replace(/\D/g, '')
-        .replace(/(\d{3})(\d)/, '$1.$2')
-        .replace(/(\d{3})(\d)/, '$1.$2')
-        .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
-
-      setFormData(prev => ({ ...prev, [name]: cpfValue }));
-      
-      const cpfSemMascara = cpfValue.replace(/[^\d]/g, '');
-      
-      if (cpfSemMascara.length === 0) {
-        setCpfError('');
-        setCpfValid(false);
-      } else if (cpfSemMascara.length < 11) {
-        setCpfError('CPF deve ter 11 dígitos');
-        setCpfValid(false);
-      } else if (cpfSemMascara.length === 11) {
-        if (validarCPF(cpfSemMascara)) {
-          setCpfError('');
-          setCpfValid(true);
-        } else {
-          setCpfError('CPF inválido. Verifique os números digitados.');
-          setCpfValid(false);
-        }
-      }
-    } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
-    }
-  };
-
-  const validateForm = () => {
-    if (!selectedStudent) {
-      alert('Por favor, selecione um aluno da lista.');
-      return false;
-    }
-
-    const cpfSemMascara = formData.cpf.replace(/[^\d]/g, '');
-    
-    if (!cpfSemMascara || cpfSemMascara.length !== 11) {
-      alert('Por favor, preencha um CPF válido.');
-      return false;
-    }
-    
-    if (!validarCPF(cpfSemMascara)) {
-      alert('CPF inválido. Verifique os números digitados.');
-      return false;
-    }
-    
-    return true;
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-    
-    setIsProcessing(true);
-
-    try {  
-      const response = await fetch('https://webhook.escolaamadeus.com/webhook/amadeuseventos', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          studentName: formData.studentName,
-          studentGrade: formData.studentGrade,
-          studentClass: formData.studentClass,
-          parentName: formData.parentName,
-          cpf: formData.cpf,
-          email: formData.email,
-          phone: formData.phone,
-          paymentMethod: formData.paymentMethod,
-          installments: formData.installments,
-          ticketQuantity: ticketQuantity, 
-          amount: valorTotal,
-          timestamp: new Date().toISOString(),
-          event: 'Amadeus-autonatalmatutino'
-        })
-      });
-
-      if (response.ok) {
-        const responseData = await response.json();
-        console.log('Resposta do n8n:', responseData);
-        
-        if (responseData.success === false) {
-          alert(responseData.message || 'Erro ao processar dados. Tente novamente.');
-          return;
-        }
-        
-        setInscriptionSuccess(true);
-  
-        setTimeout(() => {
-          if (responseData.paymentUrl) {
-            window.location.href = responseData.paymentUrl;
-          } else {
-            console.log('Link de pagamento não encontrado na resposta');
-            alert('Erro: Link de pagamento não encontrado. Entre em contato conosco.');
-          }
-        }, 1000);
-      } else {
-        const errorData = await response.json();
-        alert(errorData.message || 'Erro ao enviar dados para o servidor');
-      }
-    } catch (error) {
-      console.error('Erro:', error);
-      alert('Erro ao processar inscrição. Tente novamente.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  if (inscriptionSuccess) {
-    return (
-      <div className="min-h-screen bg-green-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardHeader className="text-center">
-            <div className="mx-auto mb-4 p-3 bg-green-100 rounded-full w-fit">
-              <CheckCircle className="h-8 w-8 text-green-600" />
-            </div>
-            <CardTitle className="text-green-600">Aguarde!</CardTitle>
-            <CardDescription>Redirecionando para o pagamento...</CardDescription>
-          </CardHeader>
-          <CardContent className="text-center">
-            <p className="text-sm text-muted-foreground mb-6">
-              Seus dados foram registrados com sucesso. Em instantes você será redirecionado para finalizar o pagamento.
-            </p>
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
-            <Button onClick={() => window.location.reload()} variant="outline" className="w-full">
-              Voltar ao Início
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+/* ══════════════════════════════════════════════════════════════════
+   HOOKS
+   ══════════════════════════════════════════════════════════════════ */
+function useReveal() {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.12 }
     );
-  }
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  return [ref, visible];
+}
 
+function useScrollY() {
+  const [y, setY] = useState(0);
+  useEffect(() => {
+    const h = () => setY(window.scrollY);
+    window.addEventListener("scroll", h, { passive: true });
+    return () => window.removeEventListener("scroll", h);
+  }, []);
+  return y;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SMALL COMPONENTS
+   ══════════════════════════════════════════════════════════════════ */
+function Highlight({ children, variant = "info" }) {
+  const colors = {
+    info: { bg: "#EFF6FF", border: "#3B82F6", color: "#1E3A5F" },
+    warn: { bg: "#FEF3C7", border: "#F59E0B", color: "#78350F" },
+    danger: { bg: "#FEF2F2", border: "#EF4444", color: "#991B1B" },
+  };
+  const c = colors[variant];
   return (
-    <div className="min-h-screen smooth-scroll">
-      <header className="fixed top-0 w-full bg-white/95 backdrop-blur-sm z-50 border-b">
-        <nav className="container mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <h1 className="text-xl font-bold text-blue-900">Escola Amadeus</h1>
-            <div className="hidden md:flex space-x-6">
-              <button onClick={() => scrollToSection('sobre')} className="text-sm hover:text-primary transition-colors">Sobre</button>
-              <button onClick={() => scrollToSection('Programação do Evento')} className="text-sm hover:text-primary transition-colors">Programação do Evento</button>
-              <button onClick={() => scrollToSection('custos')} className="text-sm hover:text-primary transition-colors">Custos</button>
-              <button onClick={() => scrollToSection('Observação')} className="text-sm hover:text-primary transition-colors">Observação</button>
-              <button onClick={() => scrollToSection('orientacoes')} className="text-sm hover:text-primary transition-colors">Orientações</button>
-              <button onClick={() => scrollToSection('contato')} className="text-sm hover:text-primary transition-colors">Contato</button>
-            </div>
-          </div>
-        </nav>
-      </header>
-
-      <section className="hero-section min-h-screen flex items-center justify-center text-white relative">
-        <div className="text-center z-10 max-w-4xl mx-auto px-4">
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 animate-fade-in">
-            Auto de Natal
-          </h1>
-          <p className="text-xl md:text-2xl mb-8 opacity-90">
-            ESTE COMUNICADO É SOMENTE PARA OS ALUNOS DO TURNO MATUTINO.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button 
-              size="lg" 
-              variant="outline" 
-              className="border-white text-white hover:bg-white hover:text-primary px-8 py-3 bg-white text-primary"
-              onClick={() => scrollToSection("sobre")}
-            >
-              Saiba Mais
-            </Button>
-          </div>
-          <div className="mt-12 flex justify-center items-center space-x-8 text-sm">
-            <div className="flex items-center">
-              <Calendar className="h-5 w-5 mr-2" />
-              6 de Dezembro de 2025 - Às 14:00.
-            </div>
-            <div className="flex items-center">
-              <MapPin className="h-5 w-5 mr-2" />
-              Teatro Poti Cavalcanti - São Gonçalo do Amarante
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="sobre" className="section-padding bg-white">
-        <div className="container mx-auto max-w-6xl">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4 gradient-text">Sobre o Evento</h2>
-            <p className="text-lg text-muted-foreground max-w-3xl mx-auto">
-            O Auto de Natal é uma apresentação teatral que conta a história do nascimento de Jesus 
-            de forma lúdica e emocionante. É uma tradição que mistura teatro, música e a magia do 
-            Natal, onde as crianças dão vida aos personagens dessa história tão especial. Este ano, 
-            nossos alunos prepararam um espetáculo lindo no Teatro Poti Cavalcanti para celebrar o 
-            encerramento do ano letivo. 
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-            <div>
-              <h3 className="text-2xl font-semibold mb-6">Uma Experiência Única</h3>
-              <div className="space-y-4">
-                <div className="flex items-start space-x-3">
-                  <CheckCircle className="h-6 w-6 text-accent mt-1 flex-shrink-0" />
-                  <p>Espaço com segurança e comodidade</p>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <CheckCircle className="h-6 w-6 text-accent mt-1 flex-shrink-0" />
-                  <p>Espaço cultural no centro de São Gonçalo do Amarante</p>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <CheckCircle className="h-6 w-6 text-accent mt-1 flex-shrink-0" />
-                  <p>Fechando o ano letivo com arte e emoção</p>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <CheckCircle className="h-6 w-6 text-accent mt-1 flex-shrink-0" />
-                  <p>Espaço preparado para receber as famílias dos apresentadores</p>
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <img src={interiorImage1} alt="Interior do Instituto" className="rounded-lg shadow-lg h-48 w-full object-cover" />
-              <img src={interiorImage2} alt="Coleções do Instituto" className="rounded-lg shadow-lg h-48 w-full object-cover" />
-              <img src={jardimImage} alt="Jardins do Instituto" className="rounded-lg shadow-lg col-span-2 h-64 w-full object-cover" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="itinerario" className="section-padding bg-muted/30">
-        <div className="container mx-auto max-w-6xl">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">Sobre o evento</h2>
-            <p className="text-lg text-muted-foreground">
-              Confira as informações do nosso evento
-            </p>
-          </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="card-hover">
-              <CardHeader className="text-center">
-                <div className="mx-auto mb-4 p-3 bg-primary/10 rounded-full w-fit">
-                  <Clock className="h-8 w-8 text-primary" />
-                </div>
-                <CardTitle>Data e Horário</CardTitle>
-                <CardDescription>Horário</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-center">
-                  Entrada: 13:30
-                </p>
-                <p className="text-sm text-center">
-                  Início das apresentações: 14:00
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="card-hover">
-              <CardHeader className="text-center">
-                <div className="mx-auto mb-4 p-3 bg-accent/10 rounded-full w-fit">
-                  <MapPin className="h-8 w-8 text-accent" />
-                </div>
-                <CardTitle>Local</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-center">
-                  Teatro Poti Cavalcanti – Rua Alexandre Cavalcanti, s/n – Centro – São Gonçalo do Amarante/RN
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      <section id="documentacao" className="section-padding bg-muted/30">
-        <div className="container mx-auto max-w-4xl">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">IMPORTANTE - LEIA</h2>
-          </div>
-
-          <div className="mt-8 p-6 bg-accent/10 rounded-lg border border-accent/20">
-            <div className="space-y-4">
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                <div>
-                  <p className="text-sm">
-                  É necessário a confirmação do(a) aluno(a) para a participação no Auto de Natal. 
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                <div>
-                  <p className="text-sm">
-                    Só irá participar dos ensaios  o(a) aluno(a) que o responsável confirmar sua presença.
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                <div>
-                  <p className="text-sm">
-                   O aluno que irá APRESENTAR não paga, no entanto para CADA responsável, que tiver interesse de assistir, O INGRESSO será de R$ 30,00. 
-                  </p>
-                </div>
-              </div>    
-              <div className="flex items-start space-x-3">
-                <div className="w-2 h-2 bg-accent rounded-full mt-2 flex-shrink-0"></div>
-                <div>
-                  <p className="text-sm">
-                   A confirmação do aluno deve ser feita até 11 de novembro de 2025, diretamente com a professora. 
-                  </p>
-                </div>
-              </div>  
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="custos" className="section-padding bg-white">
-        <div className="container mx-auto max-w-4xl">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">Inscrição e Taxa</h2>
-            <p className="text-lg text-muted-foreground">
-              O aluno que irá APRESENTAR não paga, no entanto para CADA responsável, que tiver interesse de assistir, O INGRESSO será de R$ 30,00. 
-            </p>
-          </div>
-
-          <Card className="mb-8">
-            <CardHeader className="text-center">
-              <CardTitle className="text-3xl text-primary">R$ 30,00</CardTitle>
-              <CardDescription>por RESPONSÁVEL</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="font-semibold mb-3 text-accent">O que está incluído:</h4>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-accent mr-2" />
-                      Bombeiros, decoração, som e iluminação.
-                    </li>
-                    <li className="flex items-center">
-                      <CheckCircle className="h-4 w-4 text-accent mr-2" />
-                      Entrada no teatro.
-                    </li>
-                  </ul>
-                </div>
-                <div>
-                  <h4 className="font-semibold mb-3 text-destructive">Informações importantes:</h4>
-                  <ul className="space-y-2 text-sm">
-                    <li className="flex items-start">
-                      <Shield className="h-4 w-4 text-destructive mr-2 mt-0.5" />
-                      Pagamento obrigatório até 03 de Dezembro de 2025;
-                    </li>
-                    <li className="flex items-start">
-                      <Shield className="h-4 w-4 text-destructive mr-2 mt-0.5" />
-                      O valor pago não poderá ser reembolsado. 
-                    </li>
-                  </ul>
-                </div>
-              </div>
-              
-              <Separator className="my-6" />
-              
-              <div className="text-center">
-                {!showForm ? (
-                  <Button 
-                    size="lg" 
-                    className="bg-orange-600 hover:bg-orange-700 px-8 py-3"
-                    onClick={showInscricaoForm}
-                  >
-                    Realizar Inscrição e Pagamento
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                ) : (
-                  <Button 
-                    size="lg" 
-                    variant="outline"
-                    className="px-8 py-3"
-                    onClick={() => setShowForm(false)}
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Fechar Formulário
-                  </Button>
-                )}
-                <p className="text-xs text-muted-foreground mt-2">
-                  {!showForm ? 'Preencha seus dados e escolha a forma de pagamento' : 'Clique acima para fechar o formulário'}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* FORMULÁRIO - FILTRO AUTOMÁTICO (SEM CAIXINHA VISÍVEL) */}
-          {showForm && (
-            <Card id="formulario-inscricao" className="border-orange-200 bg-orange-50/30">
-              <CardHeader>
-                <CardTitle className="flex items-center text-orange-800">
-                  <User className="mr-2 h-5 w-5" />
-                  Formulário de Inscrição
-                </CardTitle>
-                <CardDescription>
-                  Preencha todos os dados para garantir sua participação
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  
-                  {/* BUSCA DE ALUNO (FILTRO AUTOMÁTICO: SÓ TURNO MANHÃ) */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 flex items-center">
-                      <Search className="mr-2 h-5 w-5" />
-                      Buscar Aluno
-                    </h3>
-
-                    {/* CAIXINHA DE FILTROS COMENTADA - NÃO APARECE NA TELA
-                    <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <Label className="text-sm font-medium flex items-center">
-                          <Filter className="h-4 w-4 mr-2" />
-                          Filtrar busca por:
-                        </Label>
-                        {(selectedTurno || selectedSerie) && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            onClick={clearFilters}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            <X className="h-3 w-3 mr-1" />
-                            Limpar filtros
-                          </Button>
-                        )}
-                      </div>
-                    
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                          <Label htmlFor="filterTurno" className="text-xs">Turno</Label>
-                          <select
-                            id="filterTurno"
-                            value={selectedTurno}
-                            onChange={(e) => {
-                              setSelectedTurno(e.target.value);
-                              setTimeout(handleFilterChange, 100);
-                            }}
-                            className="w-full h-9 px-3 rounded-md border border-input bg-white text-sm"
-                          >
-                            <option value="">Todos os Turnos</option>
-                            {TURNOS_DISPONIVEIS.map(turno => (
-                              <option key={turno} value={turno}>{turno}</option>
-                            ))}
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <Label htmlFor="filterSerie" className="text-xs">Série</Label>
-                          <select
-                            id="filterSerie"
-                            value={selectedSerie}
-                            onChange={(e) => {
-                              setSelectedSerie(e.target.value);
-                              setTimeout(handleFilterChange, 100);
-                            }}
-                            className="w-full h-9 px-3 rounded-md border border-input bg-white text-sm"
-                          >
-                            <option value="">Todas as Séries</option>
-                            {SERIES_DISPONIVEIS.map(serie => (
-                              <option key={serie} value={serie}>{serie}</option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      {(selectedTurno || selectedSerie) && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {selectedTurno && (
-                            <Badge variant="secondary" className="text-xs">
-                              Turno: {selectedTurno}
-                            </Badge>
-                          )}
-                          {selectedSerie && (
-                            <Badge variant="secondary" className="text-xs">
-                              Série: {selectedSerie}
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    FIM DA CAIXINHA DE FILTROS */}
-                    
-                    <div className="space-y-4">
-                      <div className="relative">
-                        <Label htmlFor="studentSearch">Digite o nome do aluno *</Label>
-                        <Input
-                          id="studentSearch"
-                          name="studentSearch"
-                          value={studentSearch}
-                          onChange={handleStudentSearchChange}
-                          onFocus={() => studentsList.length > 0 && setShowStudentDropdown(true)}
-                          required
-                          placeholder="Digite pelo menos 2 letras para buscar..."
-                          autoComplete="off"
-                          className={selectedStudent ? 'border-green-500 bg-green-50' : ''}
-                        />
-                        
-                        {isSearching && (
-                          <div className="absolute right-3 top-9">
-                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                          </div>
-                        )}
-                        
-                        {selectedStudent && (
-                          <div className="mt-2 p-3 bg-green-100 rounded border border-green-300 flex items-center justify-between">
-                            <div>
-                              <span className="text-sm text-green-800 font-medium block">
-                                ✓ Aluno selecionado: {selectedStudent.nome_completo}
-                              </span>
-                              <span className="text-xs text-green-700">
-                                {selectedStudent.serie} - Turma {selectedStudent.turma} - Turno: {selectedStudent.turno}
-                              </span>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={clearStudentSelection}
-                              className="h-8 text-red-600 hover:text-red-800 hover:bg-red-50"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        )}
-
-                        {/* Dropdown de resultados */}
-                        {showStudentDropdown && studentsList.length > 0 && !selectedStudent && (
-                          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-                            {studentsList.map((student) => (
-                              <div
-                                key={student.id}
-                                onClick={() => selectStudent(student)}
-                                className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0 transition-colors"
-                              >
-                                <div className="font-medium text-sm">{student.nome_completo}</div>
-                                <div className="text-xs text-gray-600 mt-1">
-                                  {student.serie} - Turma {student.turma} - {student.turno}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {studentSearch.length >= 2 && studentsList.length === 0 && !selectedStudent && !isSearching && (
-                          <div className="mt-2 p-3 bg-yellow-50 rounded border border-yellow-200">
-                            <p className="text-sm text-yellow-800 flex items-center">
-                              <AlertTriangle className="h-4 w-4 mr-2" />
-                              Nenhum aluno encontrado. Verifique o nome digitado.
-                            </p>
-                          </div>
-                        )}
-
-                        {studentSearch.length < 2 && studentSearch.length > 0 && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Digite pelo menos 2 letras para buscar
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Campos desabilitados preenchidos automaticamente */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="studentGrade">Série do Aluno *</Label>
-                          <Input
-                            id="studentGrade"
-                            name="studentGrade"
-                            value={formData.studentGrade}
-                            disabled
-                            className="bg-gray-100 cursor-not-allowed"
-                            placeholder="Será preenchido automaticamente"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="studentClass">Turma do Aluno *</Label>
-                          <Input
-                            id="studentClass"
-                            name="studentClass"
-                            value={formData.studentClass}
-                            disabled
-                            className="bg-gray-100 cursor-not-allowed"
-                            placeholder="Será preenchido automaticamente"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Dados do Responsável */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 flex items-center">
-                      <Mail className="mr-2 h-5 w-5" />
-                      Dados do Responsável
-                    </h3>
-                    <div className="space-y-4">
-                      <div>
-                        <Label htmlFor="parentName">Nome do Responsável *</Label>
-                        <Input
-                          id="parentName"
-                          name="parentName"
-                          value={formData.parentName}
-                          onChange={handleInputChange}
-                          required
-                          placeholder="Nome completo do responsável"
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <Label htmlFor="phone">Telefone/WhatsApp *</Label>
-                          <Input
-                            id="phone"
-                            name="phone"
-                            value={formData.phone}
-                            onChange={handleInputChange}
-                            required
-                            placeholder="(84) 99999-9999"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="email">E-mail *</Label>
-                          <Input
-                            id="email"
-                            name="email"
-                            type="email"
-                            value={formData.email}
-                            onChange={handleInputChange}
-                            required
-                            placeholder="seu@email.com"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="cpf">CPF do Responsável *</Label>
-                          <Input
-                            id="cpf"
-                            name="cpf"
-                            value={formData.cpf}
-                            onChange={handleInputChange}
-                            required
-                            placeholder="000.000.000-00"
-                            maxLength="14"
-                            className={`${
-                              formData.cpf && cpfError 
-                                ? 'border-red-500 bg-red-50' 
-                                : formData.cpf && cpfValid 
-                                ? 'border-green-500 bg-green-50' 
-                                : ''
-                            }`}
-                          />
-                          {cpfError && (
-                            <p className="text-red-500 text-sm mt-1 flex items-center">
-                              <span className="mr-1">⚠️</span>
-                              {cpfError}
-                            </p>
-                          )}
-                          {cpfValid && !cpfError && (
-                            <p className="text-green-600 text-sm mt-1 flex items-center">
-                              <span className="mr-1">✅</span>
-                              CPF válido
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Quantidade de Ingressos */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4 flex items-center">
-                      <Users className="mr-2 h-5 w-5" />
-                      Quantidade de Ingressos
-                    </h3>
-                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
-                      <p className="text-sm text-blue-800 mb-3">
-                        Cada ingresso custa R$ 30,00.
-                      </p>
-                      
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <Label className="text-sm font-medium">Quantidade de ingressos:</Label>
-                          <div className="flex items-center space-x-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={decreaseTickets}
-                              disabled={ticketQuantity === 1}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </Button>
-                            <span className="w-8 text-center font-semibold text-lg">
-                              {ticketQuantity}
-                            </span>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-8 p-0"
-                              onClick={increaseTickets}
-                              disabled={ticketQuantity === 20}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                        
-                        <div className="text-sm">
-                          <span className="text-gray-600">Subtotal: </span>
-                          <span className="text-green-600 font-bold text-lg">
-                            R$ {(30 * ticketQuantity).toFixed(2).replace('.', ',')}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {ticketQuantity >= 3 && ticketQuantity < 6 && (
-                        <div className="mt-3 p-2 bg-green-100 rounded border border-green-300">
-                          <p className="text-xs text-green-800 font-medium flex items-center">
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            Para 3 ou mais ingressos você pode parcelar em até 2x no cartão!
-                          </p>
-                        </div>
-                      )}
-
-                      {ticketQuantity >= 6 && (
-                        <div className="mt-3 p-2 bg-blue-100 rounded border border-blue-300">
-                          <p className="text-xs text-blue-800 font-medium flex items-center">
-                            <CheckCircle className="h-4 w-4 mr-1" />
-                            🎉 Para 6 ou mais ingressos você pode parcelar em até 3x no cartão!
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Método de Pagamento */}
-                  <div>
-                    <h3 className="text-lg font-semibold mb-4">Método de Pagamento*</h3>
-                    
-                    <div className="space-y-3 mb-6">
-                      <div 
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          formData.paymentMethod === 'pix' 
-                            ? 'border-orange-400 bg-orange-50' 
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                        onClick={() => setFormData(prev => ({ ...prev, paymentMethod: 'pix', installments: 1 }))}
-                      >
-                        <div className="flex items-center">
-                          <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                            formData.paymentMethod === 'pix' ? 'border-orange-400 bg-orange-400' : 'border-gray-300'
-                          }`}>
-                            {formData.paymentMethod === 'pix' && (
-                              <div className="w-full h-full rounded-full bg-orange-400"></div>
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <span className="text-lg font-bold">PIX</span>
-                            <span className="text-sm">
-                              R$ {(30 * ticketQuantity).toFixed(2).replace('.', ',')} (sem taxas)
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div 
-                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                          formData.paymentMethod === 'credit' 
-                            ? 'border-orange-400 bg-orange-50' 
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                        onClick={() => setFormData(prev => ({ ...prev, paymentMethod: 'credit' }))}
-                      >
-                        <div className="flex items-center">
-                          <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
-                            formData.paymentMethod === 'credit' ? 'border-orange-400 bg-orange-400' : 'border-gray-300'
-                          }`}>
-                            {formData.paymentMethod === 'credit' && (
-                              <div className="w-full h-full rounded-full bg-orange-400"></div>
-                            )}
-                          </div>
-                          <div>
-                            <div className="flex items-center space-x-2">
-                              <span className="text-sm">💳</span>
-                              <span className="text-sm font-medium">Cartão de Crédito</span>
-                            </div>
-                            {ticketQuantity >= 3 && ticketQuantity < 6 && (
-                              <div className="text-xs text-green-600 ml-6 font-medium">
-                                ✓ Parcele em até 2x sem juros
-                              </div>
-                            )}
-                            {ticketQuantity >= 6 && (
-                              <div className="text-xs text-blue-600 ml-6 font-medium">
-                                ✓ Parcele em até 3x sem juros
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {formData.paymentMethod === 'credit' && (
-                      <div className="mb-6">
-                        <Label className="text-sm font-medium">Número de Parcelas</Label>
-                        <select
-                          value={formData.installments}
-                          onChange={(e) => setFormData(prev => ({ ...prev, installments: parseInt(e.target.value) }))}
-                          className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm mt-2"
-                        >
-                          <option value={1}>1x de R$ {(valorTotal / 1).toFixed(2).replace('.', ',')}</option>
-                          {ticketQuantity >= 3 && (
-                            <option value={2}>2x de R$ {(valorTotal / 2).toFixed(2).replace('.', ',')}</option>
-                          )}
-                          {ticketQuantity >= 6 && (
-                            <option value={3}>3x de R$ {(valorTotal / 3).toFixed(2).replace('.', ',')}</option>
-                          )}
-                        </select>
-                        {ticketQuantity < 3 && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            * Parcelamento disponível apenas para 3 ou mais ingressos
-                          </p>
-                        )}
-                        {ticketQuantity >= 3 && ticketQuantity < 6 && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            * Parcelamento em 3x disponível para 6 ou mais ingressos
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Valor Total */}
-                    <div className="bg-orange-100 p-4 rounded-lg border border-orange-200">
-                      <div className="text-center">
-                        <h4 className="text-lg font-bold text-orange-800 mb-1">Valor Total</h4>
-                        <div className="text-sm text-gray-600 mb-1">
-                          {ticketQuantity} ingresso{ticketQuantity > 1 ? 's' : ''} × R$ 30,00
-                        </div>
-                        <div className="text-2xl font-bold text-orange-900">
-                          R$ {valorTotal.toFixed(2).replace('.', ',')}
-                        </div>
-                        {formData.paymentMethod === 'credit' && formData.installments > 1 && (
-                          <div className="text-sm text-orange-700 mt-1">
-                            {formData.installments}x de R$ {valorParcela.toFixed(2).replace('.', ',')}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Botão de Envio */}
-                  <Button 
-                    type="submit" 
-                    className="w-full bg-orange-600 hover:bg-orange-700 text-white py-6 text-lg font-bold"
-                    disabled={isProcessing || !selectedStudent}
-                  >
-                    {isProcessing ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                        Processando Inscrição...
-                      </>
-                    ) : (
-                      'CONTINUAR PARA PAGAMENTO'
-                    )}
-                  </Button>
-
-                  <p className="text-xs text-center text-gray-600">
-                    Ao finalizar, você será redirecionado para o pagamento via Asaas
-                  </p>
-                </form>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </section>
-
-      <section id="contato" className="section-padding bg-muted/30">
-        <div className="container mx-auto max-w-4xl">
-          <div className="text-center mb-16">
-            <h2 className="text-4xl font-bold mb-4">Entre em Contato</h2>
-            <p className="text-lg text-muted-foreground">
-              Tire suas dúvidas conosco
-            </p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-8">
-            <Card className="card-hover">
-              <CardHeader>
-                <div className="flex items-center space-x-3">
-                  <Phone className="h-8 w-8 text-primary" />
-                  <div>
-                    <CardTitle>Telefone</CardTitle>
-                    <CardDescription>Secretaria da escola</CardDescription>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="text-lg font-semibold">(84) 9 8145-0229</p>
-                <p className="text-sm text-muted-foreground">
-                  Horário de atendimento: 7h às 19h
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-          <div className="mt-8 text-center">
-            <p className="text-sm text-muted-foreground">
-              <strong>Coordenação Pedagógica</strong><br />
-              Escola Centro Educacional Amadeus - São Gonçalo do Amarante, RN
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <footer className="bg-blue-900 text-white py-8">
-        <div className="container mx-auto px-4 text-center">
-          <p className="text-sm">
-            © 2025 Escola Centro Educacional Amadeus. Todos os direitos reservados.
-          </p>
-          <p className="text-xs mt-2 opacity-80">
-            Auto de Natal - Teatro Poti Cavalcanti - 6 de Dezembro de 2025
-          </p>
-        </div>
-      </footer>
+    <div
+      style={{
+        background: c.bg,
+        borderLeft: `4px solid ${c.border}`,
+        borderRadius: "0 10px 10px 0",
+        padding: "0.85rem 1.1rem",
+        margin: "0.75rem 0",
+        fontSize: "0.92rem",
+        lineHeight: 1.7,
+        color: c.color,
+      }}
+    >
+      {children}
     </div>
   );
 }
 
-export default App;
+function SectionCard({ id, icon: Icon, title, children, index }) {
+  const [ref, visible] = useReveal();
+  return (
+    <section
+      ref={ref}
+      id={id}
+      style={{
+        scrollMarginTop: 80,
+        marginBottom: "2.5rem",
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(32px)",
+        transition: `opacity 0.55s ${index * 0.06}s cubic-bezier(.22,1,.36,1), transform 0.55s ${index * 0.06}s cubic-bezier(.22,1,.36,1)`,
+      }}
+    >
+      {/* header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "0.75rem",
+          marginBottom: "1rem",
+          paddingBottom: "0.7rem",
+          borderBottom: "2px solid #1E40AF",
+        }}
+      >
+        <div
+          style={{
+            width: 44,
+            height: 44,
+            borderRadius: 12,
+            background: "linear-gradient(135deg,#1E40AF,#3B82F6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            boxShadow: "0 2px 8px rgba(30,64,175,0.25)",
+          }}
+        >
+          <Icon size={22} color="#fff" strokeWidth={2} />
+        </div>
+        <h2
+          style={{
+            fontFamily: "'Playfair Display', serif",
+            fontSize: "1.4rem",
+            fontWeight: 700,
+            color: "#1E3A5F",
+            margin: 0,
+          }}
+        >
+          {title}
+        </h2>
+      </div>
+
+      {/* card */}
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 14,
+          padding: "1.6rem",
+          border: "1px solid #E2E8F0",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+          transition: "box-shadow 0.3s",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.boxShadow = "0 6px 24px rgba(30,64,175,0.09)")}
+        onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)")}
+      >
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function SubTitle({ icon: Icon, children }) {
+  return (
+    <h3
+      style={{
+        fontWeight: 700,
+        fontSize: "0.96rem",
+        color: "#1E40AF",
+        margin: "1.5rem 0 0.6rem",
+        display: "flex",
+        alignItems: "center",
+        gap: "0.45rem",
+      }}
+    >
+      <span
+        style={{
+          width: 4,
+          height: 20,
+          background: "linear-gradient(to bottom,#3B82F6,#93C5FD)",
+          borderRadius: 2,
+          flexShrink: 0,
+        }}
+      />
+      {Icon && <Icon size={16} strokeWidth={2.2} />}
+      {children}
+    </h3>
+  );
+}
+
+function OL({ children }) {
+  return (
+    <ol
+      style={{
+        paddingLeft: "1.4rem",
+        margin: 0,
+        listStyleType: "decimal",
+      }}
+    >
+      {children}
+    </ol>
+  );
+}
+
+function LI({ children }) {
+  return (
+    <li
+      style={{
+        marginBottom: "0.55rem",
+        paddingLeft: "0.25rem",
+        fontSize: "0.93rem",
+        lineHeight: 1.75,
+        color: "#334155",
+      }}
+    >
+      {children}
+    </li>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   MAIN APP
+   ══════════════════════════════════════════════════════════════════ */
+export default function App() {
+  const scrollY = useScrollY();
+  const [mobileNav, setMobileNav] = useState(false);
+
+  const scrollTo = useCallback((id) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    setMobileNav(false);
+  }, []);
+
+  const showTop = scrollY > 500;
+
+  return (
+    <div
+      style={{
+        fontFamily: "'Nunito Sans', sans-serif",
+        background: "#F1F5F9",
+        color: "#1E293B",
+        lineHeight: 1.7,
+        minHeight: "100vh",
+        WebkitFontSmoothing: "antialiased",
+      }}
+    >
+      {/* ── Google Fonts ── */}
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Nunito+Sans:wght@400;500;600;700&display=swap"
+      />
+
+      {/* ═══════ HERO ═══════ */}
+      <header
+        style={{
+          background: "linear-gradient(160deg, #0F172A 0%, #1E3A5F 40%, #1E40AF 100%)",
+          color: "#fff",
+          textAlign: "center",
+          padding: "3rem 1.5rem 4.5rem",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* decorative circles */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            background:
+              "radial-gradient(circle at 15% 85%, rgba(59,130,246,0.2) 0%, transparent 45%), radial-gradient(circle at 85% 15%, rgba(147,197,253,0.1) 0%, transparent 40%)",
+          }}
+        />
+        {/* grid texture */}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            opacity: 0.04,
+            backgroundImage:
+              "linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+          }}
+        />
+        {/* wave bottom */}
+        <div
+          style={{
+            position: "absolute",
+            bottom: -2,
+            left: 0,
+            right: 0,
+            height: 48,
+            background: "#F1F5F9",
+            clipPath: "ellipse(55% 100% at 50% 100%)",
+          }}
+        />
+
+        {/* logo */}
+        <div
+          style={{
+            width: 110,
+            height: 110,
+            borderRadius: "50%",
+            overflow: "hidden",
+            margin: "0 auto 1.2rem",
+            border: "3px solid rgba(255,255,255,0.25)",
+            boxShadow: "0 4px 24px rgba(0,0,0,0.3)",
+            background: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            animation: "fadeDown 0.6s ease both",
+          }}
+        >
+          <img
+            src={logo}
+            alt="Logo do Colégio"
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        </div>
+
+        <span
+          style={{
+            display: "inline-block",
+            background: "rgba(255,255,255,0.1)",
+            border: "1px solid rgba(255,255,255,0.2)",
+            padding: "0.3rem 1rem",
+            borderRadius: 50,
+            fontSize: "0.78rem",
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            marginBottom: "1rem",
+            animation: "fadeDown 0.6s 0.1s ease both",
+          }}
+        >
+          Ano Letivo 2026
+        </span>
+
+        <h1
+          style={{
+            fontFamily: "'Playfair Display', serif",
+            fontSize: "clamp(1.9rem, 5vw, 3.1rem)",
+            fontWeight: 700,
+            lineHeight: 1.15,
+            margin: "0 0 0.7rem",
+            animation: "fadeDown 0.6s 0.15s ease both",
+          }}
+        >
+          Agenda Escolar — Diretrizes
+        </h1>
+        <p
+          style={{
+            fontSize: "1.05rem",
+            opacity: 0.8,
+            maxWidth: 500,
+            margin: "0 auto",
+            animation: "fadeDown 0.6s 0.25s ease both",
+          }}
+        >
+          Guia de normas e orientações para alunos, pais e responsáveis.
+        </p>
+      </header>
+
+      {/* ═══════ NAV ═══════ */}
+      <nav
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 100,
+          background: "rgba(255,255,255,0.88)",
+          backdropFilter: "blur(14px)",
+          WebkitBackdropFilter: "blur(14px)",
+          borderBottom: "1px solid #E2E8F0",
+          boxShadow: scrollY > 10 ? "0 2px 12px rgba(0,0,0,0.06)" : "none",
+          transition: "box-shadow 0.3s",
+        }}
+      >
+        {/* Desktop */}
+        <div
+          style={{
+            maxWidth: 920,
+            margin: "0 auto",
+            display: "flex",
+            gap: "0.2rem",
+            overflowX: "auto",
+            padding: "0.55rem 1rem",
+            scrollbarWidth: "none",
+          }}
+          className="hide-mobile"
+        >
+          {NAV.map((n) => {
+            const Icon = n.icon;
+            return (
+              <button
+                key={n.id}
+                onClick={() => scrollTo(n.id)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                  whiteSpace: "nowrap",
+                  padding: "0.4rem 0.8rem",
+                  borderRadius: 8,
+                  fontSize: "0.82rem",
+                  fontWeight: 600,
+                  color: "#475569",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  fontFamily: "inherit",
+                  flexShrink: 0,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "#1E40AF";
+                  e.currentTarget.style.color = "#fff";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                  e.currentTarget.style.color = "#475569";
+                }}
+              >
+                <Icon size={15} strokeWidth={2} />
+                {n.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Mobile hamburger */}
+        <div className="show-mobile" style={{ padding: "0.5rem 1rem", display: "none" }}>
+          <button
+            onClick={() => setMobileNav(!mobileNav)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#1E40AF",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              fontFamily: "inherit",
+              fontWeight: 700,
+              fontSize: "0.88rem",
+            }}
+          >
+            {mobileNav ? <X size={20} /> : <Menu size={20} />}
+            Navegação
+          </button>
+          {mobileNav && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, paddingBottom: 4 }}>
+              {NAV.map((n) => {
+                const Icon = n.icon;
+                return (
+                  <button
+                    key={n.id}
+                    onClick={() => scrollTo(n.id)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "0.35rem 0.7rem",
+                      borderRadius: 8,
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      color: "#fff",
+                      background: "#1E40AF",
+                      border: "none",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    <Icon size={14} />
+                    {n.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </nav>
+
+      {/* ═══════ CONTENT ═══════ */}
+      <main style={{ maxWidth: 840, margin: "0 auto", padding: "2.5rem 1.5rem 4rem" }}>
+
+        {/* OBJETIVOS */}
+        <SectionCard id="objetivos" icon={ClipboardList} title="Objetivos deste Guia" index={0}>
+          <OL>
+            <LI>Fornecer aos alunos as principais informações sobre as atividades escolares.</LI>
+            <LI>Divulgar os critérios de aprovação e frequência.</LI>
+            <LI>Servir como canal de comunicação oficial entre a Escola e os Pais/Responsáveis.</LI>
+            <LI>Estabelecer normas de convivência e funções dos setores do Colégio.</LI>
+          </OL>
+        </SectionCard>
+
+        {/* HORÁRIOS */}
+        <SectionCard id="horarios" icon={Clock} title="A — Horário de Entrada" index={1}>
+          <OL>
+            <LI>No horário <strong>MATUTINO</strong>, a escola será aberta às <strong>6h45</strong>.</LI>
+            <LI>No horário <strong>VESPERTINO</strong>, a escola abrirá às <strong>12h45</strong>.</LI>
+            <LI>Ser pontual na chegada e dirigir-se à sala de aula no 1º toque.</LI>
+            <LI>A tolerância após o 1º toque é de apenas <strong>15 minutos</strong>.</LI>
+            <LI><strong>Anos Finais (F2):</strong> Após a tolerância, o aluno só poderá entrar no 2º horário. Em dias de avaliação, só poderá entrar após o intervalo (do 1º ao 3º horário estarão em momento de avaliação).</LI>
+            <LI>Caso o aluno chegue atrasado por <strong>3 vezes</strong>, os pais ou responsáveis serão convidados a comparecer à coordenação.</LI>
+          </OL>
+        </SectionCard>
+
+        {/* SAÍDA */}
+        <SectionCard id="saida" icon={DoorOpen} title="B — Saída" index={2}>
+          <OL>
+            <LI><strong>Solicitação:</strong> Toda saída antecipada deve ser solicitada por telefone ou por escrito na agenda (apresentada à Coordenação/Direção antes do início das atividades).</LI>
+            <LI><strong>Identificação:</strong> É obrigatória a apresentação da Carteira de Identificação para a liberação do aluno.</LI>
+            <LI>
+              <strong>Saída Desacompanhada:</strong>
+              <Highlight variant="info">
+                <strong>1º Esquecimento:</strong> Notificação na agenda e liberação mediante ligação aos pais.<br />
+                <strong>Reincidência:</strong> Só será liberado com a presença do responsável.<br />
+                <strong>Extravio:</strong> Taxa de <strong>R$ 20,00</strong> para emissão da 2ª via.
+              </Highlight>
+            </LI>
+          </OL>
+        </SectionCard>
+
+        {/* FARDAMENTO */}
+        <SectionCard id="fardamento" icon={Shirt} title="C — Fardamento" index={3}>
+          <OL>
+            <LI><strong>Obrigatório:</strong> Uso do fardamento completo em todas as atividades.</LI>
+            <LI><strong>Vedações:</strong> Proibido o uso de bermudas, shorts, calções, chinelos ou sandálias.</LI>
+            <LI><strong>Calçados:</strong> Devem seguir as cores da escola — <strong>preto, azul, branco ou cinza</strong>.</LI>
+            <LI><strong>Descaracterização:</strong> Proibido o uso de camisetas de eventos ou adornos que descaracterizem o uniforme. O descumprimento gera notificação na agenda.</LI>
+          </OL>
+        </SectionCard>
+
+        {/* O ALUNO */}
+        <SectionCard id="aluno" icon={GraduationCap} title="D — O Aluno" index={4}>
+          <SubTitle icon={ShieldCheck}>I — Deveres</SubTitle>
+          <OL>
+            <LI>Ter sempre o material escolar exigido para cada disciplina e cumprir as tarefas diárias.</LI>
+            <LI>Manter o comportamento conveniente no colégio e fora dele.</LI>
+            <LI>Acatar a autoridade do Diretor, professores e funcionários e tratá-los com respeito.</LI>
+            <LI>Tratar os colegas com respeito.</LI>
+            <LI>A escola não se responsabiliza pela perda de quaisquer objetos dos alunos, inclusive celulares e livros didáticos, cabendo ao aluno e seus responsáveis a responsabilidade por eles.</LI>
+            <LI>Zelar pela limpeza e conservação das instalações, dependências e materiais do estabelecimento.</LI>
+          </OL>
+
+          <SubTitle icon={HeartHandshake}>II — Direitos</SubTitle>
+          <OL>
+            <LI>Ser respeitado na sua individualidade por todos da escola.</LI>
+            <LI>Encaminhar problemas referentes à Escola para a Equipe Técnica para análise e resolução.</LI>
+            <LI>Apresentar sugestões à Direção para melhoria da Escola.</LI>
+            <LI>Procurar a secretaria e outros serviços da Escola quando necessitar, no intervalo ou em horário vago.</LI>
+          </OL>
+
+          <SubTitle icon={Scale}>III — Sanções Aplicáveis</SubTitle>
+          <p style={{ marginBottom: "0.5rem", fontSize: "0.93rem", color: "#475569" }}>
+            Caracteriza-se como falta ou ocorrência negativa o descumprimento de qualquer item referente aos deveres do aluno ou aspectos vedados.
+          </p>
+          <OL>
+            <LI>Advertência verbal.</LI>
+            <LI>Advertência escrita.</LI>
+            <LI>Afastamento de determinadas aulas.</LI>
+            <LI>Afastamento temporário da sala de aula.</LI>
+            <LI>Termo de compromisso entre pais/aluno e Escola.</LI>
+            <LI>Remanejamento de turma.</LI>
+            <LI>O aluno flagrado depredando a escola ou material pagará o dano.</LI>
+          </OL>
+          <Highlight variant="danger">
+            <span style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                Proibido o uso de celular (Lei Nº 11.674) e demonstrações excessivas de carícias (beijos/abraços) uniformizado. Danos ao patrimônio devem ser ressarcidos.
+              </span>
+            </span>
+          </Highlight>
+
+          <SubTitle icon={Pencil}>Orientações de Estudo — Em Sala</SubTitle>
+          <OL>
+            <LI>Pedir esclarecimentos sempre que necessário.</LI>
+            <LI>Ficar atento às perguntas e respostas dadas pelo professor.</LI>
+            <LI>Fazer anotações em classe e copiar o esquema dado pelo professor.</LI>
+            <LI>Fazer os exercícios de classe, solicitando ajuda do professor.</LI>
+          </OL>
+
+          <SubTitle icon={Home}>Orientações de Estudo — Em Casa</SubTitle>
+          <OL>
+            <LI>Realizar diariamente as tarefas em local adequado, que permita disposição e concentração.</LI>
+            <LI>Ter um horário estabelecido para estudar.</LI>
+            <LI>Manter em ordem o material escolar.</LI>
+            <LI>Dividir o tempo de maneira a realizar as tarefas e revisar assuntos apresentados no dia.</LI>
+            <LI>Anotar dúvidas para esclarecê-las com os professores na próxima aula.</LI>
+            <LI>Não deixar acumular conteúdos, pois exigirá um esforço maior, além de cansar ou desestimular.</LI>
+          </OL>
+          <Highlight variant="warn">
+            <span style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>
+                <strong>Atenção:</strong> A Equipe Docente não orienta nenhum aluno a fazer trabalhos em grupo fora da escola ou em casa de colegas.
+              </span>
+            </span>
+          </Highlight>
+        </SectionCard>
+
+        {/* AVALIAÇÃO */}
+        <SectionCard id="avaliacao" icon={FileText} title="E — Avaliação" index={5}>
+          <OL>
+            <LI>Os alunos serão informados dos horários de avaliações, bem como eventuais mudanças.</LI>
+            <LI>Em todos os processos de avaliação, os <strong>aspectos qualitativos preponderão sobre os quantitativos</strong>.</LI>
+            <LI>A verificação do rendimento escolar abrangerá: conhecimento, participação, pontualidade e atividades.</LI>
+            <LI>O aluno será considerado <strong>aprovado</strong> se obtiver <strong>média anual igual ou superior a 7,0</strong> em todas as disciplinas.</LI>
+            <LI>Trabalhos <strong>não poderão ser impressos na escola</strong> e deverão ser entregues na data determinada pelo professor.</LI>
+            <LI>A entrega de trabalhos só poderá acontecer no horário de aula em que o aluno estuda <strong>e no dia que o professor determinar</strong>.</LI>
+            <LI>Faltando testes, provas e desafios (KIDS ou TEENS), o aluno fará reposição caso apresente <strong>atestado médico</strong> ou pague uma taxa de <strong>R$ 20,00</strong> no prazo determinado pela instituição.</LI>
+            <LI>Ao faltar trabalhos, o aluno só fará reposição mediante <strong>atestado médico</strong>.</LI>
+          </OL>
+
+          <SubTitle icon={BookOpen}>Recuperação</SubTitle>
+          <p style={{ fontSize: "0.93rem", color: "#475569" }}>
+            A recuperação é feita anualmente. Após os 4 bimestres, o aluno terá direito a realizar a prova de recuperação.
+          </p>
+
+          <SubTitle icon={CalendarCheck}>Frequência</SubTitle>
+          <Highlight variant="danger">
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+              <span>O aluno deve comparecer a no mínimo <strong>75%</strong> das aulas ministradas.</span>
+            </span>
+          </Highlight>
+        </SectionCard>
+
+        {/* PAIS */}
+        <SectionCard id="pais" icon={Users} title="F — Aos Pais ou Responsáveis" index={6}>
+          <SubTitle>Anuidade</SubTitle>
+          <p style={{ marginBottom: "0.7rem", fontSize: "0.93rem", color: "#475569" }}>
+            Os pais são os primeiros interessados na educação dos seus filhos. A Direção e a Coordenação estão sempre prontos a recebê-los. Os responsáveis deverão assumir o compromisso de <strong>pagar em dia a mensalidade escolar</strong>.
+          </p>
+
+          <OL>
+            <LI><strong>Acompanhamento:</strong> Verificar diariamente a agenda e utilizar o <strong>Classroom</strong> (do 3º ao 9º ano) ou a <strong>Agenda Edu</strong> para comunicação com os professores. (1º e 2º anos não possuem Classroom.)</LI>
+            <LI><strong>Saúde:</strong> Não enviar o aluno doente à escola. Administrar medicamentos apenas com receita médica e autorização escrita entregues na secretaria.</LI>
+            <LI><strong>Acesso:</strong> Proibida a entrada de pais em sala de aula ou interrupção de professores durante o horário letivo. Agende reuniões via secretaria.</LI>
+            <LI>Comparecer às reuniões de pais marcadas pela escola.</LI>
+            <LI>Comparecer à escola sempre que for solicitado.</LI>
+            <LI>Evitar conversar com os professores em horário de aula.</LI>
+            <LI>
+              Procurar a Coordenação ou a Direção quando:
+              <Highlight variant="info">
+                — Surgir alguma dúvida.<br />
+                — Surgir algum problema (nunca deixe acumular).<br />
+                — Tiver sugestões ou críticas construtivas.
+              </Highlight>
+            </LI>
+          </OL>
+
+          <SubTitle>Plantão Pedagógico</SubTitle>
+          <Highlight variant="danger">
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+              <span>O boletim será entregue <strong>exclusivamente ao responsável pela matrícula</strong>.</span>
+            </span>
+          </Highlight>
+        </SectionCard>
+
+        {/* TRANSPORTE */}
+        <SectionCard id="transporte" icon={Bus} title="G — Transporte Escolar" index={7}>
+          <p style={{ fontSize: "0.93rem", color: "#475569" }}>
+            A escola fica isenta da responsabilidade pelo transporte escolar, ficando sob responsabilidade dos pais e responsáveis.
+          </p>
+        </SectionCard>
+      </main>
+
+      {/* ═══════ FOOTER ═══════ */}
+      <footer
+        style={{
+          textAlign: "center",
+          padding: "2.5rem 1.5rem",
+          background: "linear-gradient(160deg, #0F172A, #1E3A5F)",
+          color: "rgba(255,255,255,0.65)",
+          fontSize: "0.85rem",
+          position: "relative",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: -2,
+            left: 0,
+            right: 0,
+            height: 44,
+            background: "#F1F5F9",
+            clipPath: "ellipse(55% 100% at 50% 0%)",
+          }}
+        />
+        <strong
+          style={{
+            color: "#fff",
+            fontFamily: "'Playfair Display', serif",
+            fontWeight: 700,
+            fontSize: "1.1rem",
+            display: "block",
+            marginBottom: 4,
+          }}
+        >
+          São Gonçalo do Amarante — RN
+        </strong>
+        <p style={{ margin: 0 }}>Agenda Escolar 2026 · Publicado em 23/02/2026</p>
+      </footer>
+
+      {/* ═══════ SCROLL TO TOP ═══════ */}
+      <button
+        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        aria-label="Voltar ao topo"
+        style={{
+          position: "fixed",
+          bottom: 24,
+          right: 24,
+          width: 46,
+          height: 46,
+          borderRadius: "50%",
+          background: "linear-gradient(135deg, #1E40AF, #3B82F6)",
+          color: "#fff",
+          border: "none",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 4px 16px rgba(30,64,175,0.35)",
+          opacity: showTop ? 1 : 0,
+          transform: showTop ? "translateY(0) scale(1)" : "translateY(16px) scale(0.8)",
+          transition: "opacity 0.3s, transform 0.3s",
+          pointerEvents: showTop ? "auto" : "none",
+          zIndex: 99,
+        }}
+      >
+        <ChevronUp size={22} />
+      </button>
+
+      {/* ═══════ GLOBAL STYLES ═══════ */}
+      <style>{`
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+
+        @keyframes fadeDown {
+          from { opacity: 0; transform: translateY(-18px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+
+        ol li::marker {
+          color: #1E40AF;
+          font-weight: 700;
+        }
+
+        /* scrollbar hide for nav */
+        .hide-mobile::-webkit-scrollbar { display: none; }
+        .hide-mobile { scrollbar-width: none; }
+
+        /* responsive swap */
+        @media (max-width: 640px) {
+          .hide-mobile { display: none !important; }
+          .show-mobile { display: block !important; }
+        }
+
+        @media print {
+          nav, button[aria-label="Voltar ao topo"] { display: none !important; }
+          header::after, footer > div:first-child { display: none; }
+          section { break-inside: avoid; }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 
 
