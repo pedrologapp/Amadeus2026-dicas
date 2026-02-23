@@ -21,8 +21,18 @@ import {
   HeartHandshake,
 } from "lucide-react";
 
-/* ─── logo ─── */
-import logo from "./assets/logo.png";
+/* ─── logo ───
+   Coloque seu arquivo em:  src/assets/logo.png
+   Se o arquivo não existir, um placeholder será exibido.
+─── */
+let logo = null;
+try {
+  const modules = import.meta.glob("./assets/logo.{png,jpg,jpeg,svg,webp}", { eager: true });
+  const first = Object.values(modules)[0];
+  if (first) logo = first.default;
+} catch (_) {
+  /* fallback */
+}
 
 /* ══════════════════════════════════════════════════════════════════
    DATA
@@ -322,8 +332,16 @@ export default function App() {
           <img
             src={logo}
             alt="Logo do Colégio"
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            style={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: logo ? "block" : "none",
+            }}
           />
+          {!logo && (
+            <GraduationCap size={48} color="#1E40AF" strokeWidth={1.5} />
+          )}
         </div>
 
         <span
